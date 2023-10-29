@@ -383,7 +383,7 @@ __global__ void kernelRenderPixels() {
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;
     int width = cuConstRendererParams.imageWidth;
-    int height = cuConstantRendererParams.imageHeight;
+    int height = cuConstRendererParams.imageHeight;
     
     if (x >= width || y >= height) {
         return;
