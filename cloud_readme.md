@@ -16,7 +16,9 @@ NOTE: __Please don't forget to SHUT DOWN your instances when you're done for the
 3. After you entered the Lightsail page, click **Lightsail for Research** at the top middle.
 ![lightsail](handout/lightsail.png?raw=true)
 
-4. Click on the menu button at the top left, and you should see your instance under "virtual computers".
+4. Click on the menu button at the top left, and you should see your instance under "virtual computers" (the instance name should include your SUNet id).
+
+*Oct 25 2:42PM: Lightsail web page is currently bugged where you will see lots of red boxes with errors. You can ignore the errors (close all red boxes) and continue to work with your instance.*
 ![lightsail_for_research](handout/lightsail_for_research.png?raw=true)
 
 5. Select your instance. You should be able to start your instance by clicking "Start Computer" on the top right. After the instance is started, you can launch the GUI by clicking on **launch Ubuntu**
@@ -55,7 +57,7 @@ chmod 700 /home/lightsail-user/.ssh
 chmod go-w /home/lightsail-user
 ~~~~
 
-5. Now we have completed our key pair setup. Find your instance's IP address in the console. After starting your Lightsail instance, you can find its IP address here. Try refreshing the page if its empty.
+5. Now we have completed our key pair setup. Find your instance's IP address in the console. After starting your Lightsail instance, you can find its IP address here. Try refreshing the page if its empty. **Note: the IP of your instance changes every time it is restarted!**
 ![ip](handout/ip.png?raw=true)
 
 6. Finally, you can SSH into your instance using generated private key with the following command!
@@ -81,7 +83,9 @@ chmod +x ./asst3/install.sh
 source ~/.bashrc
 ~~~~
 
-4. After running the script, CUDA should be installed. You can double check the cuda version, which should be 12.3. The GPU we are using is Tesla T4.
+4. After running the script, CUDA should be installed. You can double check the cuda version using `nvidia-smi`, which should be **12.3**. The GPU we are using is **Tesla T4**. 
+
+(If the command errors, try restarting the terminal/restarting the instance, and if error persists, make an Ed post and TAs will help!)
 ~~~~
 lightsail-user@ip-172-26-12-153:~$ nvidia-smi
 Mon Oct 23 16:08:43 2023       
@@ -116,4 +120,11 @@ If you are using SSH, you can fetch your code using `scp` command like following
 ~~~~
 scp -i <path-to-your-private-key> lightsail-user@<instance-IP-addr>:/path/to/file /path/to/local_file
 ~~~~
+
+## Shutting down VM ##
+When you're done using the VM, you can shut it down by clicking "stop computer" in the web page, or using the command below in the terminal.
+~~~~
+sudo shutdown -h now
+~~~~
+
  
