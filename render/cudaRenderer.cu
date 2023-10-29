@@ -391,7 +391,6 @@ __global__ void kernelRenderPixels() {
 
     float invWidth = 1.0 / width;
     float invHeight = 1.0 / height;
-
     float2 pixelCenterNorm = make_float2(invWidth * (static_cast<float>(x) + 0.5f),
                                         invHeight * (static_cast<float>(y) + 0.5f));
     float4* imgPtr = (float4*)(&cuConstRendererParams.imageData[4 * (y * width + x)]);
