@@ -384,10 +384,6 @@ __global__ void kernelRenderPixels() {
     int y = blockIdx.y * blockDim.y + threadIdx.y;
     int width = cuConstRendererParams.imageWidth;
     int height = cuConstRendererParams.imageHeight;
-    
-    if (x >= width || y >= height) {
-        return;
-    }
 
     float invWidth = 1.0 / width;
     float invHeight = 1.0 / height;
@@ -419,7 +415,7 @@ __global__ void kernelRenderPixels() {
             rgb = lookupColor(pixelDistNorm);
             float maxAlpha = .6f + .4f * (1.f - pos.z);
             maxAlpha = kCircleMaxAlpha * fmaxf(fminf(maxAlpha, 1.f), 0.f); 
-            alpha = maxAlpha * exp(-1.0 * falloffScale * pixelDistNorm);
+            alpha = maxAlpha * exp(-1.0 * falloffScale * pixelDistNorm * pixelDistNorm);
         } else {
             rgb = *(float3*)&(cuConstRendererParams.color[index3]);
             alpha = 0.5;
@@ -693,7 +689,7 @@ void
 CudaRenderer::render() {
 
     // 256 threads per block is a healthy number
-    dim3 blockDim(32, 32);
+    dim3 blockDim(16, 16);
     dim3 gridDim((image->width + blockDim.x - 1) / blockDim.x,
                  (image->height + blockDim.y - 1) / blockDim.y);
 
