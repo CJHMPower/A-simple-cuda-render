@@ -418,6 +418,7 @@ __global__ void kernelRenderPixels() {
             float pixelDistNorm = sqrt(dist) / radius;
             rgb = lookupColor(pixelDistNorm);
             float maxAlpha = .6f + .4f * (1.f - pos.z);
+            maxAlpha = kCircleMaxAlpha * fmaxf(fminf(maxAlpha, 1.f), 0.f); 
             alpha = maxAlpha * exp(-1.0 * falloffScale * pixelDistNorm);
         } else {
             rgb = *(float3*)&(cuConstRendererParams.color[index3]);
