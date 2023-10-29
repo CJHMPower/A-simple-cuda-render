@@ -324,7 +324,7 @@ shadePixel(int circleIndex, float2 pixelCenter, float3 p, float4* imagePtr) {
     float diffY = p.y - pixelCenter.y;
     float pixelDist = diffX * diffX + diffY * diffY;
 
-    float rad = cuConstRendererParams.radius[circleIndex];;
+    float rad = cuConstRendererParams.radius[circleIndex];
     float maxDist = rad * rad;
 
     // circle does not contribute to the image
@@ -379,6 +379,61 @@ shadePixel(int circleIndex, float2 pixelCenter, float3 p, float4* imagePtr) {
     // END SHOULD-BE-ATOMIC REGION
 }
 
+__global__ void kernelRenderPixels() {
+    int x = blockIdx.x * blockDim.x + threadIdx.x;
+    int y = blockIdx.y * blockDim.y + threadIdx.y;
+    int width = cuConstRendererParams.imageWidth;
+    int height = cuConstantRenderParams.imageHeight;
+    
+    if (x >= width || y >= height) {
+        return;
+    }
+
+    float invWidth = 1.0 / width;
+    float invHeight = 1.0 / height;
+
+    float2 pixelCenterNorm = make_float2(invWidth * (static_cast<float>(pixelX) + 0.5f),
+                                        invHeight * (static_cast<float>(pixelY) + 0.5f));
+    float4* imgPtr = (float4*)(&cuConstRendererParams.imageData[4 * (y * width + x)]);
+    float4 currentColor = *imgPtr;
+
+    for (int i = 0; i < numCircles; i++) {
+        int index3 = 3 * i;
+        float3 pos = *(float3*)(&cuConstRendererParams.position[index3]);
+
+        float diffX = pos.x - pixelCenterNorm.x;
+        float diffY = pos.y - pixelCenterNorm.y;
+        float dist = diffX * diffX + diffY * diffY;
+        float radius = cuConstRendererParams.radius[i];
+        // circle doesn't overlap with the pixel
+        if (dist > radius * radius) {
+            continue;
+        }
+
+        float3 rgb;
+        float alpha;
+
+        if (cuConstRendererParams.sceneName == SNOWFLAKES || cuConstRendererParams.sceneName == SNOWFLAKES_SINGLE_FRAME) {
+            const float kCircleMaxAlpha = .5f;
+            const float falloffScale = 4.f;
+            float pixelDistNorm = sqrt(dist) / radius;
+            rgb = lookupColor(pixelDistNorm);
+            float maxAlpha = .6f + .4f * (1.f - pos.z);
+            alpha = maxAlpha * exp(-1.0 * falloffScale * pixelDistNorm);
+        } else {
+            rgb = *(float*)&(cuConstRendererParams.color[index3]);
+            alpha = 0.5;
+        }
+        
+        float oneMinusAlpha = 1.0 - alpha;
+        currentColor.x = alpha * rgb.x + oneMinusAlpha * currentColor.x;
+        currentColor.y = alpha * rgb.y + oneMinusAlpha * currentColor.y;
+        currentColor.z = alpha * rgb.z + oneMinusAlpha * currentColor.z;
+        currentColor.w += alpha;
+    }                                    
+    *imagePtr = currentColor;
+}
+
 // kernelRenderCircles -- (CUDA device code)
 //
 // Each thread renders a circle.  Since there is no protection to
@@ -401,6 +456,7 @@ __global__ void kernelRenderCircles() {
     // screen coordinates, so it's clamped to the edges of the screen.
     short imageWidth = cuConstRendererParams.imageWidth;
     short imageHeight = cuConstRendererParams.imageHeight;
+
     short minX = static_cast<short>(imageWidth * (p.x - rad));
     short maxX = static_cast<short>(imageWidth * (p.x + rad)) + 1;
     short minY = static_cast<short>(imageHeight * (p.y - rad));
@@ -637,9 +693,10 @@ void
 CudaRenderer::render() {
 
     // 256 threads per block is a healthy number
-    dim3 blockDim(256, 1);
-    dim3 gridDim((numCircles + blockDim.x - 1) / blockDim.x);
+    dim3 blockDim(32, 32);
+    dim3 gridDim((image->width + blockDim.x - 1) / blockDim.x,
+                 (image->height + blockDim.y - 1) / blockDim.y);
 
-    kernelRenderCircles<<<gridDim, blockDim>>>();
+    kernelRenderPixels<<<gridDim, blockDim>>>();
     cudaDeviceSynchronize();
 }
