@@ -18,7 +18,7 @@
 
 #define BLOCK_DIM_X 16
 #define BLOCK_DIM_Y 16
-#define BLOCK_DIM (BLOCK_DIM_X * BLOCK_DIM_Y)
+#define SCAN_BLOCK_DIM (BLOCK_DIM_X * BLOCK_DIM_Y)
 ////////////////////////////////////////////////////////////////////////////////////////
 // Putting all the cuda kernels here
 ///////////////////////////////////////////////////////////////////////////////////////
@@ -384,7 +384,7 @@ shadePixel(int circleIndex, float2 pixelCenter, float3 p, float4* imagePtr) {
     // END SHOULD-BE-ATOMIC REGION
 }
 
-__device__ __inline__ int kernelCountCircles(int4 blockBox, int * circleCountForThread, int * circleIndexesForBlock, int * circleCountForBlock, int * sSratch) {
+__device__ __inline__ uint kernelCountCircles(int4 blockBox, uint * circleCountForThread, uint * circleIndexesForBlock, uint * circleCountForBlock, uint * sSratch) {
     int threadId = threadIdx.y * blockDim.x + threadIdx.x;
     int width = cuConstRendererParams.imageWidth;
     int height = cuConstRendererParams.imageHeight;
@@ -396,7 +396,7 @@ __device__ __inline__ int kernelCountCircles(int4 blockBox, int * circleCountFor
     float upperBox = blockBox.z * invHeight;
     float buttomBox = blockBox.w * invHeight;
 
-    int circlesPerThread = (cuConstRendererParams.numCircles + BLOCK_DIM - 1) / BLOCK_DIM;
+    int circlesPerThread = (cuConstRendererParams.numCircles + SCAN_BLOCK_DIM - 1) / SCAN_BLOCK_DIM;
     int circleIndexStart = threadId * circlesPerThread;
     int circleIndexEnd = max(cuConstRendererParams.numCircles, circleIndexStart + circlesPerThread);
 
@@ -412,11 +412,11 @@ __device__ __inline__ int kernelCountCircles(int4 blockBox, int * circleCountFor
     circleCountForThread[threadId] = circleIndexesForThread.size();
     __syncthreads();
 
-    sharedMemExclusiveScan(threadId, circleCountForThread, circleCountForBlock, sSratch, BLOCK_DIM);
+    sharedMemExclusiveScan(threadId, circleCountForThread, circleCountForBlock, sSratch, SCAN_BLOCK_DIM);
     __syncthreads();
 
-    int circleCount = circleCountForBlock[BLOCK_DIM - 1] + circleCountForThread[BLOCK_DIM - 1];
-    int circleIndexInBlock = circleCountForBlock[threadId];
+    uint circleCount = circleCountForBlock[SCAN_BLOCK_DIM - 1] + circleCountForThread[SCAN_BLOCK_DIM - 1];
+    uint circleIndexInBlock = circleCountForBlock[threadId];
     for (auto circleIndex : circleIndexesForThread) {
         circleIndexesForBlock[circleIndexInBlock++] = circleIndex;
     }
@@ -431,10 +431,10 @@ __global__ void kernelRenderPixels() {
     int height = cuConstRendererParams.imageHeight;
     int pixelIndex = 4 * (y * width + height);
 
-    __shared__ int circleCountForThread[BLOCK_DIM];
-    __shared__ int circleIndexesForBlock[2 * BLOCK_DIM];
-    __shared__ int circleCountForBlock[BLOCK_DIM];
-    __shared__ int sSratch[2 * BLOCK_DIM];
+    __shared__ uint circleCountForThread[SCAN_BLOCK_DIM];
+    __shared__ uint circleIndexesForBlock[2 * SCAN_BLOCK_DIM];
+    __shared__ uint circleCountForBlock[SCAN_BLOCK_DIM];
+    __shared__ uint sSratch[2 * SCAN_BLOCK_DIM];
 
     float invWidth = 1.0 / width;
     float invHeight = 1.0 / height;
@@ -445,11 +445,11 @@ __global__ void kernelRenderPixels() {
     int buttomBox = topBox + BLOCK_DIM_Y - 1;
     
     int4 blockBox = make_int4(leftBox, rightBox, topBox, buttomBox);
-    int circleCount = kernelCountCircles(blockBox, circleCountForThread, circleIndexesForBlock, circleCountForBlock, sSratch);
+    uint circleCount = kernelCountCircles(blockBox, circleCountForThread, circleIndexesForBlock, circleCountForBlock, sSratch);
     float2 pixelCenterNorm = make_float2(invWidth * (static_cast<float>(x) + 0.5f),
                                         invHeight * (static_cast<float>(y) + 0.5f));
 
-    for (int i = 0; i < circleCount; i++) {
+    for (uint i = 0; i < circleCount; i++) {
         int circleIndex = circleIndexesForBlock[i];
         int index3 = 3 * circleIndex;
         float3 pos = *(float3*)(&cuConstRendererParams.position[index3]);
