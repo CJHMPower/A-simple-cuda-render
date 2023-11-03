@@ -401,12 +401,15 @@ __device__ __inline__ uint kernelCountCircles(int4 blockBox, uint * circleCountF
     int circleIndexStart = threadId * circlesPerThread;
     int circleIndexEnd = max(cuConstRendererParams.numCircles, circleIndexStart + circlesPerThread);
 
-    std::vector<int> circleIndexesForThread;
+    const uint CIRCLE_PER_BLOCK = 1024;
+    uint count = 0;
+
+    int circleIndexesForThread[CIRCLE_PER_BLOCK];
     for (int i = circleIndexStart; i < circleIndexEnd; i++) {
         float3 position = *(float3*)(&cuConstRendererParams.position[3 * i]);
         float radius = cuConstRendererParams.radius[i];
         if (circleInBoxConservative(position.x, position.y, radius, leftBox, rightBox, buttomBox, upperBox) == 1) {
-            circleIndexesForThread.push_back(i);
+            circleIndexesForThread[count++] = i;
         }
     }
 
@@ -418,8 +421,8 @@ __device__ __inline__ uint kernelCountCircles(int4 blockBox, uint * circleCountF
 
     uint circleCount = circleCountForBlock[SCAN_BLOCK_DIM - 1] + circleCountForThread[SCAN_BLOCK_DIM - 1];
     uint circleIndexInBlock = circleCountForBlock[threadId];
-    for (auto circleIndex : circleIndexesForThread) {
-        circleIndexesForBlock[circleIndexInBlock++] = circleIndex;
+    for (int i = 0; i < count; i++) {
+        circleIndexesForBlock[circleIndexInBlock++] = circleIndexesForThread[i];
     }
 
     return circleCount;
