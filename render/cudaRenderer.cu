@@ -399,13 +399,16 @@ __device__ __inline__ uint kernelCountCircles(int4 blockBox, uint * circleCountF
 
     int circlesPerThread = (cuConstRendererParams.numCircles + SCAN_BLOCK_DIM - 1) / SCAN_BLOCK_DIM;
     int circleIndexStart = threadId * circlesPerThread;
-    int circleIndexEnd = max(cuConstRendererParams.numCircles, circleIndexStart + circlesPerThread);
+    int circleIndexEnd = threadId == SCAN_BLOCK_DIM ? numCircles : circleIndexStart + circlesPerThread;
 
     const uint CIRCLE_PER_BLOCK = 1024;
     uint count = 0;
 
     int circleIndexesForThread[CIRCLE_PER_BLOCK];
     for (int i = circleIndexStart; i < circleIndexEnd; i++) {
+        if (i >= cuConstRendererParams.numCircles) {
+            continue;
+        }
         float3 position = *(float3*)(&cuConstRendererParams.position[3 * i]);
         float radius = cuConstRendererParams.radius[i];
         if (circleInBoxConservative(position.x, position.y, radius, leftBox, rightBox, buttomBox, upperBox) == 1) {
