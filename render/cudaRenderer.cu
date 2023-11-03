@@ -427,6 +427,7 @@ __device__ __inline__ uint kernelCountCircles(int4 blockBox, uint * circleCountF
     for (int i = 0; i < count; i++) {
         circleIndexesForBlock[circleIndexInBlock++] = circleIndexesForThread[i];
     }
+    __syncthreads();
 
     return circleCount;
 }
@@ -453,6 +454,7 @@ __global__ void kernelRenderPixels() {
     
     int4 blockBox = make_int4(leftBox, rightBox, topBox, buttomBox);
     uint circleCount = kernelCountCircles(blockBox, circleCountForThread, circleIndexesForBlock, circleCountForBlock, sSratch);
+    
     float2 pixelCenterNorm = make_float2(invWidth * (static_cast<float>(x) + 0.5f),
                                         invHeight * (static_cast<float>(y) + 0.5f));
 
