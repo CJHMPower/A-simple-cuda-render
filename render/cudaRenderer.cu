@@ -413,7 +413,7 @@ __device__ __inline__ uint kernelCountCircles(int4 blockBox, uint * circleCountF
         }
     }
 
-    circleCountForThread[threadId] = circleIndexesForThread.size();
+    circleCountForThread[threadId] = count;
     __syncthreads();
 
     sharedMemExclusiveScan(threadId, circleCountForThread, circleCountForBlock, sSratch, SCAN_BLOCK_DIM);
