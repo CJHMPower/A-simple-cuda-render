@@ -13,6 +13,8 @@
 #include "noise.h"
 #include "sceneLoader.h"
 #include "util.h"
+#include "circleBoxTest.cu_inl"
+#include "exclusiveScan.cu_inl"
 
 #define BLOCK_DIM_X 16
 #define BLOCK_DIM_Y 16
@@ -382,12 +384,12 @@ shadePixel(int circleIndex, float2 pixelCenter, float3 p, float4* imagePtr) {
     // END SHOULD-BE-ATOMIC REGION
 }
 
-__device__ __inline__ int kernelCountCircles(int4 blockBox, int * circleCountForThread, int * circleIndexsForBlock, int * circleCountForBlock, int * sSratch) {
+__device__ __inline__ int kernelCountCircles(int4 blockBox, int * circleCountForThread, int * circleIndexesForBlock, int * circleCountForBlock, int * sSratch) {
     int threadId = threadIdx.y * blockDim.x + threadIdx.x;
     int width = cuConstRendererParams.imageWidth;
-    int height = cuConstRendererParams.height;
-    float invWith = 1.0 / width;
-    float height = 1.0 / height;
+    int height = cuConstRendererParams.imageHeight;
+    float invWidth = 1.0 / width;
+    float invHeight = 1.0 / height;
 
     float leftBox = blockBox.x * invWidth;
     float rightBox = blockBox.y *invWidth;
@@ -442,7 +444,7 @@ __global__ void kernelRenderPixels() {
     int topBox = blockIdx.y * BLOCK_DIM_Y;
     int buttomBox = topBox + BLOCK_DIM_Y - 1;
     
-    int4 blockBox = make_int4(leftX, rightBox, topBox, buttomBox);
+    int4 blockBox = make_int4(leftBox, rightBox, topBox, buttomBox);
     int circleCount = kernelCountCircles(blockBox, circleCountForThread, circleIndexesForBlock, circleCountForBlock, sSratch);
     float2 pixelCenterNorm = make_float2(invWidth * (static_cast<float>(x) + 0.5f),
                                         invHeight * (static_cast<float>(y) + 0.5f));
