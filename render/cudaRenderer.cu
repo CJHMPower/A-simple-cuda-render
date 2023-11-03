@@ -385,6 +385,66 @@ shadePixel(int circleIndex, float2 pixelCenter, float3 p, float4* imagePtr) {
     // END SHOULD-BE-ATOMIC REGION
 }
 
+__device__ __inline__ uint
+countCircles(short * blockCoord, uint * circleCountPerThreadList, uint * circleIndexesInBlockList, uint * circleCountPerBlockList){
+	int linearThreadIndex = threadIdx.y * blockDim.x + threadIdx.x;
+
+	short imageWidth = cuConstRendererParams.imageWidth;
+	short imageHeight = cuConstRendererParams.imageHeight;
+
+	float invWidth = 1.f / imageWidth;
+	float invHeight = 1.f / imageHeight;
+
+	float leftIndex = blockCoord[0] * invWidth;
+	float rightIndex = blockCoord[1] * invWidth;
+	float topIndex = blockCoord[2] * invHeight;
+	float bottomIndex = blockCoord[3] * invHeight;
+
+	int circlesPerThread = (cuConstRendererParams.numCircles + SCAN_BLOCK_DIM - 1) / SCAN_BLOCK_DIM;
+	int circleIndexStart = linearThreadIndex * circlesPerThread;
+	int circleIndexEnd=0;
+	if(linearThreadIndex == SCAN_BLOCK_DIM)
+		circleIndexEnd = cuConstRendererParams.numCircles;
+	else{
+		circleIndexEnd = circleIndexStart + circlesPerThread;
+	}
+
+	int circleCountPerThread = 0;
+
+	const uint CIRCLES_PER_THREAD=32;
+	uint circleArrayPerThread[CIRCLES_PER_THREAD];
+
+	for(int i = circleIndexStart; i< circleIndexEnd; i++){
+		if(i<cuConstRendererParams.numCircles){
+			float3 position = *(float3*)(&cuConstRendererParams.position[i*3]);
+			float radius = cuConstRendererParams.radius[i];
+
+			if(circleInBoxConservative(position.x, position.y, radius, leftIndex, rightIndex, bottomIndex, topIndex) == 1){
+				circleArrayPerThread[circleCountPerThread] = i;
+				circleCountPerThread++;
+			}
+		}
+	}
+
+	circleCountPerThreadList[ linearThreadIndex ] = circleCountPerThread;
+	__syncthreads();
+
+	sharedMemExclusiveScan(linearThreadIndex, circleCountPerThreadList, circleCountPerBlockList, circleIndexesInBlockList, SCAN_BLOCK_DIM);
+	__syncthreads();
+
+	uint totalCircles = circleCountPerBlockList[SCAN_BLOCK_DIM-1] + circleCountPerThreadList[SCAN_BLOCK_DIM-1];
+
+	uint tmpIndex = circleCountPerBlockList[ linearThreadIndex ];
+
+	for(int i=0; i<circleCountPerThread; i++){
+		circleIndexesInBlockList[tmpIndex] = circleArrayPerThread[i];
+		tmpIndex++;
+	}
+	__syncthreads();
+
+	return totalCircles;
+}
+
 __device__ __inline__ uint kernelCountCircles(int4 blockBox, uint * circleCountForThread, uint * circleIndexesForBlock, uint * circleCountForBlock, uint * sSratch) {
     int threadId = threadIdx.y * blockDim.x + threadIdx.x;
     int width = cuConstRendererParams.imageWidth;
@@ -440,28 +500,27 @@ __global__ void kernelRenderPixels() {
     int pixelIndex = 4 * (y * width + height);
 
     __shared__ uint circleCountForThread[SCAN_BLOCK_DIM];
-    __shared__ uint circleIndexesForBlock[SCAN_BLOCK_DIM];
+    __shared__ uint circleIndexesForBlock[2 * SCAN_BLOCK_DIM];
     __shared__ uint circleCountForBlock[SCAN_BLOCK_DIM];
     __shared__ uint sSratch[2 * SCAN_BLOCK_DIM];
 
     float invWidth = 1.0 / width;
     float invHeight = 1.0 / height;
 
-    int leftBox = blockIdx.x * BLOCK_DIM_X;
-    int rightBox = leftBox + BLOCK_DIM_X - 1;
-    int topBox = blockIdx.y * BLOCK_DIM_Y;
-    int buttomBox = topBox + BLOCK_DIM_Y - 1;
+    short leftBox = blockIdx.x * BLOCK_DIM_X;
+    short rightBox = leftBox + BLOCK_DIM_X - 1;
+    short topBox = blockIdx.y * BLOCK_DIM_Y;
+    short buttomBox = topBox + BLOCK_DIM_Y - 1;
     
-    int4 blockBox = make_int4(leftBox, rightBox, topBox, buttomBox);
-    uint circleCount = kernelCountCircles(blockBox, circleCountForThread, circleIndexesForBlock, circleCountForBlock, sSratch);
-    printf("number of circles for %d ", circleCount);
+    // int4 blockBox = make_int4(leftBox, rightBox, topBox, buttomBox);
+    short blockCoord[] {leftBox, rightBox, topBox, buttomBox};
+    uint circleCount = countCircles(blockBox, circleCountForThread, circleIndexesForBlock, circleCountForBlock);
     
     float2 pixelCenterNorm = make_float2(invWidth * (static_cast<float>(x) + 0.5f),
                                         invHeight * (static_cast<float>(y) + 0.5f));
 
     for (uint i = 0; i < circleCount; i++) {
         int circleIndex = circleIndexesForBlock[i];
-        printf("pixel id: %d, circle index %d", pixelIndex, circleIndex);
         int index3 = 3 * circleIndex;
         float3 pos = *(float3*)(&cuConstRendererParams.position[index3]);
 
