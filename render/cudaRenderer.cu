@@ -399,7 +399,7 @@ __device__ __inline__ uint kernelCountCircles(int4 blockBox, uint * circleCountF
 
     int circlesPerThread = (cuConstRendererParams.numCircles + SCAN_BLOCK_DIM - 1) / SCAN_BLOCK_DIM;
     int circleIndexStart = threadId * circlesPerThread;
-    int circleIndexEnd = threadId == SCAN_BLOCK_DIM ? numCircles : circleIndexStart + circlesPerThread;
+    int circleIndexEnd = threadId == SCAN_BLOCK_DIM ? cuConstRendererParams.numCircles : circleIndexStart + circlesPerThread;
 
     const uint CIRCLE_PER_BLOCK = 1024;
     uint count = 0;
