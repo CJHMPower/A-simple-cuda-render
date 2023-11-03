@@ -402,9 +402,9 @@ __device__ __inline__ uint kernelCountCircles(int4 blockBox, uint * circleCountF
     int circleIndexEnd = threadId == SCAN_BLOCK_DIM ? cuConstRendererParams.numCircles : circleIndexStart + circlesPerThread;
 
     const uint CIRCLE_PER_BLOCK = 1024;
-    uint count = 0;
+    int count = 0;
 
-    int circleIndexesForThread[CIRCLE_PER_BLOCK];
+    uint circleIndexesForThread[CIRCLE_PER_BLOCK];
     for (int i = circleIndexStart; i < circleIndexEnd; i++) {
         if (i >= cuConstRendererParams.numCircles) {
             continue;
@@ -454,12 +454,14 @@ __global__ void kernelRenderPixels() {
     
     int4 blockBox = make_int4(leftBox, rightBox, topBox, buttomBox);
     uint circleCount = kernelCountCircles(blockBox, circleCountForThread, circleIndexesForBlock, circleCountForBlock, sSratch);
+    printf("number of circles for %d ", circleCount);
     
     float2 pixelCenterNorm = make_float2(invWidth * (static_cast<float>(x) + 0.5f),
                                         invHeight * (static_cast<float>(y) + 0.5f));
 
     for (uint i = 0; i < circleCount; i++) {
         int circleIndex = circleIndexesForBlock[i];
+        printf("pixel id: %d, circle index %d", pixelIndex, circleIndex);
         int index3 = 3 * circleIndex;
         float3 pos = *(float3*)(&cuConstRendererParams.position[index3]);
 
