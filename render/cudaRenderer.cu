@@ -439,7 +439,7 @@ __global__ void kernelRenderPixels() {
     int pixelIndex = 4 * (y * width + height);
 
     __shared__ uint circleCountForThread[SCAN_BLOCK_DIM];
-    __shared__ uint circleIndexesForBlock[2 * SCAN_BLOCK_DIM];
+    __shared__ uint circleIndexesForBlock[SCAN_BLOCK_DIM];
     __shared__ uint circleCountForBlock[SCAN_BLOCK_DIM];
     __shared__ uint sSratch[2 * SCAN_BLOCK_DIM];
 
@@ -464,7 +464,7 @@ __global__ void kernelRenderPixels() {
         float diffX = pos.x - pixelCenterNorm.x;
         float diffY = pos.y - pixelCenterNorm.y;
         float dist = diffX * diffX + diffY * diffY;
-        float radius = cuConstRendererParams.radius[i];
+        float radius = cuConstRendererParams.radius[circleIndex];
         // circle doesn't overlap with the pixel
         if (dist > radius * radius) {
             continue;
