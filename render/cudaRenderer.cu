@@ -8,6 +8,10 @@
 #include <cuda_runtime.h>
 #include <driver_functions.h>
 
+#define BLOCK_DIM_X 16
+#define BLOCK_DIM_Y 16
+#define SCAN_BLOCK_DIM (BLOCK_DIM_X * BLOCK_DIM_Y)
+
 #include "cudaRenderer.h"
 #include "image.h"
 #include "noise.h"
@@ -16,9 +20,6 @@
 #include "circleBoxTest.cu_inl"
 #include "exclusiveScan.cu_inl"
 
-#define BLOCK_DIM_X 16
-#define BLOCK_DIM_Y 16
-#define SCAN_BLOCK_DIM (BLOCK_DIM_X * BLOCK_DIM_Y)
 ////////////////////////////////////////////////////////////////////////////////////////
 // Putting all the cuda kernels here
 ///////////////////////////////////////////////////////////////////////////////////////
