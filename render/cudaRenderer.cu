@@ -14,6 +14,9 @@
 #include "sceneLoader.h"
 #include "util.h"
 
+#define BLOCK_DIM_X 16
+#define BLOCK_DIM_Y 16
+#define BLOCK_DIM (BLOCK_DIM_X * BLOCK_DIM_Y)
 ////////////////////////////////////////////////////////////////////////////////////////
 // Putting all the cuda kernels here
 ///////////////////////////////////////////////////////////////////////////////////////
@@ -379,21 +382,74 @@ shadePixel(int circleIndex, float2 pixelCenter, float3 p, float4* imagePtr) {
     // END SHOULD-BE-ATOMIC REGION
 }
 
+__device__ __inline__ int kernelCountCircles(int4 blockBox, int * circleCountForThread, int * circleIndexsForBlock, int * circleCountForBlock, int * sSratch) {
+    int threadId = threadIdx.y * blockDim.x + threadIdx.x;
+    int width = cuConstRendererParams.imageWidth;
+    int height = cuConstRendererParams.height;
+    float invWith = 1.0 / width;
+    float height = 1.0 / height;
+
+    float leftBox = blockBox.x * invWidth;
+    float rightBox = blockBox.y *invWidth;
+    float upperBox = blockBox.z * invHeight;
+    float buttomBox = blockBox.w * invHeight;
+
+    int circlesPerThread = (cuConstRendererParams.numCircles + BLOCK_DIM - 1) / BLOCK_DIM;
+    int circleIndexStart = threadId * circlesPerThread;
+    int circleIndexEnd = max(cuConstRendererParams.numCircles, circleIndexStart + circlesPerThread);
+
+    std::vector<int> circleIndexesForThread;
+    for (int i = circleIndexStart; i < circleIndexEnd; i++) {
+        float3 position = *(float3*)(&cuConstRendererParams.position[3 * i]);
+        float radius = cuConstRendererParams.radius[i];
+        if (circleInBoxConservative(position.x, position.y, radius, leftBox, rightBox, buttomBox, upperBox) == 1) {
+            circleIndexesForThread.push_back(i);
+        }
+    }
+
+    circleCountForThread[threadId] = circleIndexesForThread.size();
+    __syncthreads();
+
+    sharedMemExclusiveScan(threadId, circleCountForThread, circleCountForBlock, sSratch, BLOCK_DIM);
+    __syncthreads();
+
+    int circleCount = circleCountForBlock[BLOCK_DIM - 1] + circleCountForThread[BLOCK_DIM - 1];
+    int circleIndexInBlock = circleCountForBlock[threadId];
+    for (auto circleIndex : circleIndexesForThread) {
+        circleIndexesForBlock[circleIndexInBlock++] = circleIndex;
+    }
+
+    return circleCount;
+}
+
 __global__ void kernelRenderPixels() {
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;
     int width = cuConstRendererParams.imageWidth;
     int height = cuConstRendererParams.imageHeight;
+    int pixelIndex = 4 * (y * width + height);
+
+    __shared__ int circleCountForThread[BLOCK_DIM];
+    __shared__ int circleIndexesForBlock[2 * BLOCK_DIM];
+    __shared__ int circleCountForBlock[BLOCK_DIM];
+    __shared__ int sSratch[2 * BLOCK_DIM];
 
     float invWidth = 1.0 / width;
     float invHeight = 1.0 / height;
+
+    int leftBox = blockIdx.x * BLOCK_DIM_X;
+    int rightBox = leftBox + BLOCK_DIM_X - 1;
+    int topBox = blockIdx.y * BLOCK_DIM_Y;
+    int buttomBox = topBox + BLOCK_DIM_Y - 1;
+    
+    int4 blockBox = make_int4(leftX, rightBox, topBox, buttomBox);
+    int circleCount = kernelCountCircles(blockBox, circleCountForThread, circleIndexesForBlock, circleCountForBlock, sSratch);
     float2 pixelCenterNorm = make_float2(invWidth * (static_cast<float>(x) + 0.5f),
                                         invHeight * (static_cast<float>(y) + 0.5f));
-    float4* imgPtr = (float4*)(&cuConstRendererParams.imageData[4 * (y * width + x)]);
-    float4 currentColor = *imgPtr;
 
-    for (int i = 0; i < cuConstRendererParams.numCircles; i++) {
-        int index3 = 3 * i;
+    for (int i = 0; i < circleCount; i++) {
+        int circleIndex = circleIndexesForBlock[i];
+        int index3 = 3 * circleIndex;
         float3 pos = *(float3*)(&cuConstRendererParams.position[index3]);
 
         float diffX = pos.x - pixelCenterNorm.x;
@@ -422,12 +478,14 @@ __global__ void kernelRenderPixels() {
         }
         
         float oneMinusAlpha = 1.0 - alpha;
+        float4* imgPtr = (float4*)(&cuConstRendererParams.imageData[pixelIndex]);
+        float4 currentColor = *imgPtr;
         currentColor.x = alpha * rgb.x + oneMinusAlpha * currentColor.x;
         currentColor.y = alpha * rgb.y + oneMinusAlpha * currentColor.y;
         currentColor.z = alpha * rgb.z + oneMinusAlpha * currentColor.z;
         currentColor.w += alpha;
+        *imgPtr = currentColor;
     }                                    
-    *imgPtr = currentColor;
 }
 
 // kernelRenderCircles -- (CUDA device code)
