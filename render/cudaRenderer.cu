@@ -522,6 +522,15 @@ __global__ void kernelRenderPixels() {
     __shared__ uint circleCountForBlock[SCAN_BLOCK_DIM];
     __shared__ uint sSratch[2 * SCAN_BLOCK_DIM];
 
+    short blockLeftCoord = blockIdx.x * THREADS_PER_BLOCK_X;
+	short blockRightCoord = blockLeftCoord + THREADS_PER_BLOCK_X - 1;
+	short blockTopCoord = blockIdx.y * THREADS_PER_BLOCK_Y;
+	short blockBottomCoord = blockTopCoord + THREADS_PER_BLOCK_Y - 1;
+
+	short blockCoord[]{blockLeftCoord,blockRightCoord,blockTopCoord,blockBottomCoord };
+
+    uint circlesNumberTotal = countCircles(blockCoord, cirCountForThread, circleIndexesForBlock, circleCountForBlock);
+
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;
     int width = cuConstRendererParams.imageWidth;
@@ -534,14 +543,15 @@ __global__ void kernelRenderPixels() {
     float4* imgPtr = (float4*)(&cuConstRendererParams.imageData[4 * (y * width + x)]);
     float4 currentColor = *imgPtr;
 
-    for (int i = 0; i < cuConstRendererParams.numCircles; i++) {
-        int index3 = 3 * i;
+    for (int i = 0; i < circlesNumerTotal; i++) {
+        int circleIndex = circleIndexInBlock[i];
+        int index3 = 3 * circleIndex;
         float3 pos = *(float3*)(&cuConstRendererParams.position[index3]);
 
         float diffX = pos.x - pixelCenterNorm.x;
         float diffY = pos.y - pixelCenterNorm.y;
         float dist = diffX * diffX + diffY * diffY;
-        float radius = cuConstRendererParams.radius[i];
+        float radius = cuConstRendererParams.radius[circleIndex];
         // circle doesn't overlap with the pixel
         if (dist > radius * radius) {
             continue;
