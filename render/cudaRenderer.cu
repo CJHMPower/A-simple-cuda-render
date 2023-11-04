@@ -538,22 +538,20 @@ __global__ void kernelRenderPixels() {
     
     // int4 blockBox = make_int4(leftBox, rightBox, topBox, buttomBox);
     short blockCoord[] {leftBox, rightBox, topBox, buttomBox};
-    uint circleCount = countCircles(blockCoord, circleCountForThread, circleIndexesForBlock, circleCountForBlock);
+    // uint circleCount = countCircles(blockCoord, circleCountForThread, circleIndexesForBlock, circleCountForBlock);
     
     float4* imgPtr = (float4*)(&cuConstRendererParams.imageData[pixelIndex]);
     float2 pixelCenterNorm = make_float2(invWidth * (static_cast<float>(x) + 0.5f),
                                         invHeight * (static_cast<float>(y) + 0.5f));
 
     for (uint i = 0; i < cuConstRendererParams.numCircles; i++) {
-        int circleIndex = i;
-        /**
-        int index3 = 3 * circleIndex;
+		int index3 = 3 * i;
         float3 pos = *(float3*)(&cuConstRendererParams.position[index3]);
 
         float diffX = pos.x - pixelCenterNorm.x;
         float diffY = pos.y - pixelCenterNorm.y;
         float dist = diffX * diffX + diffY * diffY;
-        float radius = cuConstRendererParams.radius[circleIndex];
+        float radius = cuConstRendererParams.radius[i];
         // circle doesn't overlap with the pixel
         if (dist > radius * radius) {
             continue;
@@ -576,17 +574,12 @@ __global__ void kernelRenderPixels() {
         }
         
         float oneMinusAlpha = 1.0 - alpha;
-        float4* imgPtr = (float4*)(&cuConstRendererParams.imageData[pixelIndex]);
-        float4 currentColor = *imgPtr;
         currentColor.x = alpha * rgb.x + oneMinusAlpha * currentColor.x;
         currentColor.y = alpha * rgb.y + oneMinusAlpha * currentColor.y;
         currentColor.z = alpha * rgb.z + oneMinusAlpha * currentColor.z;
         currentColor.w += alpha;
-        *imgPtr = currentColor;
-        **/
-		float3 circlePosition=*(float3*)(&cuConstRendererParams.position[circleIndex*3]);
-		shadePixel2(circleIndex, pixelCenterNorm, circlePosition, imgPtr);
     }                                    
+    *imgPtr = currentColor;                                   
 }
 
 // kernelRenderCircles -- (CUDA device code)
