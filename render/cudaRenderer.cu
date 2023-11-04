@@ -541,6 +541,7 @@ __global__ void kernelRenderPixels() {
     // uint circleCount = countCircles(blockCoord, circleCountForThread, circleIndexesForBlock, circleCountForBlock);
     
     float4* imgPtr = (float4*)(&cuConstRendererParams.imageData[pixelIndex]);
+    float4 currentColor = *imgPtr;
     float2 pixelCenterNorm = make_float2(invWidth * (static_cast<float>(x) + 0.5f),
                                         invHeight * (static_cast<float>(y) + 0.5f));
 
