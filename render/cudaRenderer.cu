@@ -514,7 +514,7 @@ __global__ void kernelRenderPixels() {
     
     // int4 blockBox = make_int4(leftBox, rightBox, topBox, buttomBox);
     short blockCoord[] {leftBox, rightBox, topBox, buttomBox};
-    uint circleCount = countCircles(blockBox, circleCountForThread, circleIndexesForBlock, circleCountForBlock);
+    uint circleCount = countCircles(blockCoord, circleCountForThread, circleIndexesForBlock, circleCountForBlock);
     
     float2 pixelCenterNorm = make_float2(invWidth * (static_cast<float>(x) + 0.5f),
                                         invHeight * (static_cast<float>(y) + 0.5f));
