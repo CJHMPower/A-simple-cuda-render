@@ -522,14 +522,14 @@ __global__ void kernelRenderPixels() {
     __shared__ uint circleCountForBlock[SCAN_BLOCK_DIM];
     __shared__ uint sSratch[2 * SCAN_BLOCK_DIM];
 
-    short blockLeftCoord = blockIdx.x * BLOCK_DIM_X;
-	short blockRightCoord = blockLeftCoord + BLOCK_DIM_X - 1;
-	short blockTopCoord = blockIdx.y * BLOCK_DIM_Y;
-	short blockBottomCoord = blockTopCoord + BLOCK_DIM_Y - 1;
+    int blockLeftCoord = blockIdx.x * BLOCK_DIM_X;
+	int blockRightCoord = blockLeftCoord + BLOCK_DIM_X;
+	int blockTopCoord = blockIdx.y * BLOCK_DIM_Y;
+	int blockBottomCoord = blockTopCoord + BLOCK_DIM_Y;
 
-	short blockCoord[]{blockLeftCoord,blockRightCoord,blockTopCoord,blockBottomCoord };
+	int4 blockCoord = make_int4(blockLeftCoord, blockRightCoord, blockTopCoord, blockBottomCoord);
 
-    uint circlesNumberTotal = countCircles(blockCoord, circleCountForThread, circleIndexesForBlock, circleCountForBlock);
+    uint circlesNumberTotal = kernelCountCircles(blockCoord, circleCountForThread, circleIndexesForBlock, circleCountForBlock, sSratch);
 
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;
