@@ -517,36 +517,25 @@ __device__ __inline__ uint kernelCountCircles(int4 blockBox, uint * circleCountF
 }
 
 __global__ void kernelRenderPixels() {
-    int x = blockIdx.x * blockDim.x + threadIdx.x;
-    int y = blockIdx.y * blockDim.y + threadIdx.y;
-    int width = cuConstRendererParams.imageWidth;
-    int height = cuConstRendererParams.imageHeight;
-    int pixelIndex = 4 * (y * width + height);
-
     __shared__ uint circleCountForThread[SCAN_BLOCK_DIM];
     __shared__ uint circleIndexesForBlock[2 * SCAN_BLOCK_DIM];
     __shared__ uint circleCountForBlock[SCAN_BLOCK_DIM];
     __shared__ uint sSratch[2 * SCAN_BLOCK_DIM];
 
+    int x = blockIdx.x * blockDim.x + threadIdx.x;
+    int y = blockIdx.y * blockDim.y + threadIdx.y;
+    int width = cuConstRendererParams.imageWidth;
+    int height = cuConstRendererParams.imageHeight;
+
     float invWidth = 1.0 / width;
     float invHeight = 1.0 / height;
-
-    short leftBox = blockIdx.x * BLOCK_DIM_X;
-    short rightBox = leftBox + BLOCK_DIM_X - 1;
-    short topBox = blockIdx.y * BLOCK_DIM_Y;
-    short buttomBox = topBox + BLOCK_DIM_Y - 1;
-    
-    // int4 blockBox = make_int4(leftBox, rightBox, topBox, buttomBox);
-    short blockCoord[] {leftBox, rightBox, topBox, buttomBox};
-    // uint circleCount = countCircles(blockCoord, circleCountForThread, circleIndexesForBlock, circleCountForBlock);
-    
-    float4* imgPtr = (float4*)(&cuConstRendererParams.imageData[pixelIndex]);
-    float4 currentColor = *imgPtr;
     float2 pixelCenterNorm = make_float2(invWidth * (static_cast<float>(x) + 0.5f),
                                         invHeight * (static_cast<float>(y) + 0.5f));
+    float4* imgPtr = (float4*)(&cuConstRendererParams.imageData[4 * (y * width + x)]);
+    float4 currentColor = *imgPtr;
 
-    for (uint i = 0; i < cuConstRendererParams.numCircles; i++) {
-		int index3 = 3 * i;
+    for (int i = 0; i < cuConstRendererParams.numCircles; i++) {
+        int index3 = 3 * i;
         float3 pos = *(float3*)(&cuConstRendererParams.position[index3]);
 
         float diffX = pos.x - pixelCenterNorm.x;
@@ -580,7 +569,7 @@ __global__ void kernelRenderPixels() {
         currentColor.z = alpha * rgb.z + oneMinusAlpha * currentColor.z;
         currentColor.w += alpha;
     }                                    
-    *imgPtr = currentColor;                                   
+    *imgPtr = currentColor;           
 }
 
 // kernelRenderCircles -- (CUDA device code)
