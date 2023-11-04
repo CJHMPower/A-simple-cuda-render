@@ -8,8 +8,8 @@
 #include <cuda_runtime.h>
 #include <driver_functions.h>
 
-#define BLOCK_DIM_X 16
-#define BLOCK_DIM_Y 16
+#define BLOCK_DIM_X 32
+#define BLOCK_DIM_Y 32
 #define SCAN_BLOCK_DIM (BLOCK_DIM_X * BLOCK_DIM_Y)
 
 #include "cudaRenderer.h"
@@ -445,6 +445,39 @@ countCircles(short * blockCoord, uint * circleCountPerThreadList, uint * circleI
 	return totalCircles;
 }
 
+__device__ __inline__ void
+shadePixel(int circleIndex, float2 pixelCenter, float3 p, float4* imagePtr) {
+
+    float diffX = p.x - pixelCenter.x;
+    float diffY = p.y - pixelCenter.y;
+    float pixelDist = diffX * diffX + diffY * diffY;
+
+    float rad = cuConstRendererParams.radius[circleIndex];
+    float maxDist = rad * rad;
+
+    if (pixelDist > maxDist)
+        return;
+
+    float3 rgb;
+    float alpha;
+
+    int index3 = 3 * circleIndex;
+    rgb = *(float3*)&(cuConstRendererParams.color[index3]);
+    alpha = .5f;
+
+
+    float oneMinusAlpha = 1.f - alpha;
+
+    float4 existingColor = *imagePtr;
+    float4 newColor;
+    newColor.x = alpha * rgb.x + oneMinusAlpha * existingColor.x;
+    newColor.y = alpha * rgb.y + oneMinusAlpha * existingColor.y;
+    newColor.z = alpha * rgb.z + oneMinusAlpha * existingColor.z;
+    newColor.w = alpha + existingColor.w;
+
+    *imagePtr = newColor;
+}
+
 __device__ __inline__ uint kernelCountCircles(int4 blockBox, uint * circleCountForThread, uint * circleIndexesForBlock, uint * circleCountForBlock, uint * sSratch) {
     int threadId = threadIdx.y * blockDim.x + threadIdx.x;
     int width = cuConstRendererParams.imageWidth;
@@ -516,11 +549,13 @@ __global__ void kernelRenderPixels() {
     short blockCoord[] {leftBox, rightBox, topBox, buttomBox};
     uint circleCount = countCircles(blockCoord, circleCountForThread, circleIndexesForBlock, circleCountForBlock);
     
+    float4* imgPtr = (float4*)(&cuConstRendererParams.imageData[pixelIndex]);
     float2 pixelCenterNorm = make_float2(invWidth * (static_cast<float>(x) + 0.5f),
                                         invHeight * (static_cast<float>(y) + 0.5f));
 
     for (uint i = 0; i < circleCount; i++) {
         int circleIndex = circleIndexesForBlock[i];
+        /**
         int index3 = 3 * circleIndex;
         float3 pos = *(float3*)(&cuConstRendererParams.position[index3]);
 
@@ -557,6 +592,9 @@ __global__ void kernelRenderPixels() {
         currentColor.z = alpha * rgb.z + oneMinusAlpha * currentColor.z;
         currentColor.w += alpha;
         *imgPtr = currentColor;
+        **/
+		float3 circlePosition=*(float3*)(&cuConstRendererParams.position[circleIndex*3]);
+		shadePixel(circleIndex, pixelCenterNorm, circlePosition, imgPtr);
     }                                    
 }
 
@@ -576,7 +614,7 @@ __global__ void kernelRenderCircles() {
 
     // read position and radius
     float3 p = *(float3*)(&cuConstRendererParams.position[index3]);
-    float  rad = cuConstRendererParams.radius[index];
+    float rad = cuConstRendererParams.radius[index];
 
     // compute the bounding box of the circle. The bound is in integer
     // screen coordinates, so it's clamped to the edges of the screen.
@@ -819,7 +857,7 @@ void
 CudaRenderer::render() {
 
     // 256 threads per block is a healthy number
-    dim3 blockDim(16, 16);
+    dim3 blockDim(BLOCK_DIM_X, BLOCK_DIM_Y);
     dim3 gridDim((image->width + blockDim.x - 1) / blockDim.x,
                  (image->height + blockDim.y - 1) / blockDim.y);
 
