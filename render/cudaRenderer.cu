@@ -318,124 +318,6 @@ __global__ void kernelAdvanceSnowflake() {
     *((float3*)velocityPtr) = velocity;
 }
 
-// shadePixel -- (CUDA device code)
-//
-// given a pixel and a circle, determines the contribution to the
-// pixel from the circle.  Update of the image is done in this
-// function.  Called by kernelRenderCircles()
-__device__ __inline__ void
-shadePixel2(int circleIndex, float2 pixelCenter, float3 p, float4* imagePtr) {
-
-    float diffX = p.x - pixelCenter.x;
-    float diffY = p.y - pixelCenter.y;
-    float pixelDist = diffX * diffX + diffY * diffY;
-
-    float rad = cuConstRendererParams.radius[circleIndex];
-    float maxDist = rad * rad;
-
-    // circle does not contribute to the image
-    if (pixelDist > maxDist)
-        return;
-
-    float3 rgb;
-    float alpha;
-
-    if (cuConstRendererParams.sceneName == SNOWFLAKES || cuConstRendererParams.sceneName == SNOWFLAKES_SINGLE_FRAME) {
-
-        const float kCircleMaxAlpha = .5f;
-        const float falloffScale = 4.f;
-
-        float normPixelDist = sqrt(pixelDist) / rad;
-        rgb = lookupColor(normPixelDist);
-
-        float maxAlpha = .6f + .4f * (1.f-p.z);
-        maxAlpha = kCircleMaxAlpha * fmaxf(fminf(maxAlpha, 1.f), 0.f); // kCircleMaxAlpha * clamped value
-        alpha = maxAlpha * exp(-1.f * falloffScale * normPixelDist * normPixelDist);
-
-    } else {
-        int index3 = 3 * circleIndex;
-        rgb = *(float3*)&(cuConstRendererParams.color[index3]);
-        alpha = .5f;
-    }
-
-    float oneMinusAlpha = 1.f - alpha;
-
-    // BEGIN SHOULD-BE-ATOMIC REGION
-    // global memory read
-
-    float4 existingColor = *imagePtr;
-    float4 newColor;
-    newColor.x = alpha * rgb.x + oneMinusAlpha * existingColor.x;
-    newColor.y = alpha * rgb.y + oneMinusAlpha * existingColor.y;
-    newColor.z = alpha * rgb.z + oneMinusAlpha * existingColor.z;
-    newColor.w = alpha + existingColor.w;
-
-    // global memory write
-    *imagePtr = newColor;
-
-    // END SHOULD-BE-ATOMIC REGION
-}
-
-__device__ __inline__ uint
-countCircles(short * blockCoord, uint * circleCountPerThreadList, uint * circleIndexesInBlockList, uint * circleCountPerBlockList){
-	int linearThreadIndex = threadIdx.y * blockDim.x + threadIdx.x;
-
-	short imageWidth = cuConstRendererParams.imageWidth;
-	short imageHeight = cuConstRendererParams.imageHeight;
-
-	float invWidth = 1.f / imageWidth;
-	float invHeight = 1.f / imageHeight;
-
-	float leftIndex = blockCoord[0] * invWidth;
-	float rightIndex = blockCoord[1] * invWidth;
-	float topIndex = blockCoord[2] * invHeight;
-	float bottomIndex = blockCoord[3] * invHeight;
-
-	int circlesPerThread = (cuConstRendererParams.numCircles + SCAN_BLOCK_DIM - 1) / SCAN_BLOCK_DIM;
-	int circleIndexStart = linearThreadIndex * circlesPerThread;
-	int circleIndexEnd=0;
-	if(linearThreadIndex == SCAN_BLOCK_DIM) {
-		circleIndexEnd = cuConstRendererParams.numCircles;
-    } else {
-		circleIndexEnd = circleIndexStart + circlesPerThread;
-	}
-
-	int circleCountPerThread = 0;
-
-	const uint CIRCLES_PER_THREAD=32;
-	uint circleArrayPerThread[CIRCLES_PER_THREAD];
-
-	for(int i = circleIndexStart; i< circleIndexEnd; i++){
-		if(i<cuConstRendererParams.numCircles){
-			float3 position = *(float3*)(&cuConstRendererParams.position[i*3]);
-			float radius = cuConstRendererParams.radius[i];
-
-			if(circleInBoxConservative(position.x, position.y, radius, leftIndex, rightIndex, bottomIndex, topIndex) == 1){
-				circleArrayPerThread[circleCountPerThread] = i;
-				circleCountPerThread++;
-			}
-		}
-	}
-
-	circleCountPerThreadList[ linearThreadIndex ] = circleCountPerThread;
-	__syncthreads();
-
-	sharedMemExclusiveScan(linearThreadIndex, circleCountPerThreadList, circleCountPerBlockList, circleIndexesInBlockList, SCAN_BLOCK_DIM);
-	__syncthreads();
-
-	uint totalCircles = circleCountPerBlockList[SCAN_BLOCK_DIM-1] + circleCountPerThreadList[SCAN_BLOCK_DIM-1];
-
-	uint tmpIndex = circleCountPerBlockList[ linearThreadIndex ];
-
-	for(int i=0; i<circleCountPerThread; i++){
-		circleIndexesInBlockList[tmpIndex] = circleArrayPerThread[i];
-		tmpIndex++;
-	}
-	__syncthreads();
-
-	return totalCircles;
-}
-
 __device__ __inline__ void
 shadePixel(int circleIndex, float2 pixelCenter, float3 p, float4* imagePtr) {
 
@@ -476,10 +358,10 @@ __device__ __inline__ uint kernelCountCircles(int4 blockBox, uint * circleCountF
     float invWidth = 1.0 / width;
     float invHeight = 1.0 / height;
 
-    float leftBox = blockBox.x * invWidth;
-    float rightBox = blockBox.y *invWidth;
-    float upperBox = blockBox.z * invHeight;
-    float buttomBox = blockBox.w * invHeight;
+    float leftBox = static_cast<float>(blockBox.x) * invWidth;
+    float rightBox = static_cast<float>(blockBox.y) *invWidth;
+    float upperBox = static_cast<float>(blockBox.z) * invHeight;
+    float buttomBox = static_cast<float>(blockBox.w) * invHeight;
 
     int circlesPerThread = (cuConstRendererParams.numCircles + SCAN_BLOCK_DIM - 1) / SCAN_BLOCK_DIM;
     int circleIndexStart = threadId * circlesPerThread;
