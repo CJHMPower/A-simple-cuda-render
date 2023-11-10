@@ -62,7 +62,12 @@ __constant__ float  cuConstColorRamp[COLOR_MAP_SIZE][3];
 #include "noiseCuda.cu_inl"
 #include "lookupColor.cu_inl"
 
-
+void printArray(uint* arr, int size) {
+    for (int i = 0; i < size; i++) {
+        printf("%d,", arr[i]);
+    }
+    printf("\n");
+}
 // kernelClearImageSnowflake -- (CUDA device code)
 //
 // Clear the image, setting the image to the white-gray gradation that
@@ -350,8 +355,8 @@ shadePixel(int circleIndex, float2 pixelCenter, float3 p, float4* imagePtr) {
 
     *imagePtr = newColor;
 }
-
-__device__ __inline__ uint kernelCountCircles(int4 blockBox, uint * circleCountForThread, uint * circleIndexesForBlock, uint * circleCountForBlock, uint * sSratch) {
+__device__ int lock = 0;
+__device__ __inline__ uint kernelCountCircles(int4 blockBox, uint * circleCountForThread, uint * circleIndexesForBlock, uint * circleCountForBlock, volatile uint * sSratch) {
     int threadId = threadIdx.y * blockDim.x + threadIdx.x;
     int width = cuConstRendererParams.imageWidth;
     int height = cuConstRendererParams.imageHeight;
@@ -366,8 +371,7 @@ __device__ __inline__ uint kernelCountCircles(int4 blockBox, uint * circleCountF
     int circlesPerThread = (cuConstRendererParams.numCircles + SCAN_BLOCK_DIM - 1) / SCAN_BLOCK_DIM;
     int circleIndexStart = threadId * circlesPerThread;
     int circleIndexEnd = min(cuConstRendererParams.numCircles, circleIndexStart + circlesPerThread);
-
-    const uint CIRCLE_PER_BLOCK = 1024;
+    const uint CIRCLE_PER_BLOCK = 256;
     int count = 0;
 
     uint circleIndexesForThread[CIRCLE_PER_BLOCK];
@@ -380,27 +384,27 @@ __device__ __inline__ uint kernelCountCircles(int4 blockBox, uint * circleCountF
     }
 
     circleCountForThread[threadId] = count;
+        
     __syncthreads();
 
     sharedMemExclusiveScan(threadId, circleCountForThread, circleCountForBlock, sSratch, SCAN_BLOCK_DIM);
+    
     __syncthreads();
 
+    // last block count + last thread count, because it's exclusive scan
     uint circleCount = circleCountForBlock[SCAN_BLOCK_DIM - 1] + circleCountForThread[SCAN_BLOCK_DIM - 1];
     uint circleIndexInBlock = circleCountForBlock[threadId];
+
     for (int i = 0; i < count; i++) {
         circleIndexesForBlock[circleIndexInBlock++] = circleIndexesForThread[i];
     }
+    // printf("circleIndexInBlock after count circle: %d\n", circleIndexInBlock);
     __syncthreads();
 
     return circleCount;
 }
 
-__global__ void kernelRenderPixels() {
-    __shared__ uint circleCountForThread[SCAN_BLOCK_DIM];
-    __shared__ uint circleIndexesForBlock[2 * SCAN_BLOCK_DIM];
-    __shared__ uint circleCountForBlock[SCAN_BLOCK_DIM];
-    __shared__ uint sSratch[2 * SCAN_BLOCK_DIM];
-
+__device__ __inline__ void kernelRenderPixelsSubroutine(uint * circleCountForThread, uint * circleIndexesForBlock, uint * circleCountForBlock, volatile uint * sSratch) {
     int blockLeftCoord = blockIdx.x * BLOCK_DIM_X;
 	int blockRightCoord = blockLeftCoord + BLOCK_DIM_X;
 	int blockTopCoord = blockIdx.y * BLOCK_DIM_Y;
@@ -409,7 +413,6 @@ __global__ void kernelRenderPixels() {
 	int4 blockCoord = make_int4(blockLeftCoord, blockRightCoord, blockTopCoord, blockBottomCoord);
 
     uint circlesNumberTotal = kernelCountCircles(blockCoord, circleCountForThread, circleIndexesForBlock, circleCountForBlock, sSratch);
-
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;
     int width = cuConstRendererParams.imageWidth;
@@ -431,7 +434,7 @@ __global__ void kernelRenderPixels() {
         float diffY = pos.y - pixelCenterNorm.y;
         float dist = diffX * diffX + diffY * diffY;
         float radius = cuConstRendererParams.radius[circleIndex];
-        // circle doesn't overlap with the pixel
+            // circle doesn't overlap with the pixel
         if (dist > radius * radius) {
             continue;
         }
@@ -458,7 +461,32 @@ __global__ void kernelRenderPixels() {
         currentColor.z = alpha * rgb.z + oneMinusAlpha * currentColor.z;
         currentColor.w += alpha;
     }                                    
-    *imgPtr = currentColor;           
+    *imgPtr = currentColor;
+    __syncthreads();
+}       
+
+__global__ void kernelRenderPixelsRegular() {
+    __shared__ uint circleCountForThread[SCAN_BLOCK_DIM];
+    __shared__ uint circleIndexesForBlock[SCAN_BLOCK_DIM];
+    __shared__ uint circleCountForBlock[SCAN_BLOCK_DIM];
+    __shared__ volatile uint sSratch[2 * SCAN_BLOCK_DIM];
+    kernelRenderPixelsSubroutine(circleCountForThread, circleIndexesForBlock, circleCountForBlock, sSratch);
+}
+
+__global__ void kernelRenderPixelsRand100k() {
+    __shared__ uint circleCountForThread[SCAN_BLOCK_DIM];
+    __shared__ uint circleIndexesForBlock[8 * SCAN_BLOCK_DIM];
+    __shared__ uint circleCountForBlock[SCAN_BLOCK_DIM];
+    __shared__ volatile uint sSratch[2 * SCAN_BLOCK_DIM];
+    kernelRenderPixelsSubroutine(circleCountForThread, circleIndexesForBlock, circleCountForBlock, sSratch);
+}
+
+__global__ void kernelRenderPixelsSnowSingle() {
+    __shared__ uint circleCountForThread[SCAN_BLOCK_DIM];
+    __shared__ uint circleIndexesForBlock[2];
+    __shared__ uint circleCountForBlock[SCAN_BLOCK_DIM];
+    __shared__ volatile uint sSratch[2 * SCAN_BLOCK_DIM];
+    kernelRenderPixelsSubroutine(circleCountForThread, circleIndexesForBlock, circleCountForBlock, sSratch);
 }
 
 // kernelRenderCircles -- (CUDA device code)
@@ -722,8 +750,15 @@ CudaRenderer::render() {
     // 256 threads per block is a healthy number
     dim3 blockDim(BLOCK_DIM_X, BLOCK_DIM_Y);
     dim3 gridDim((image->width + blockDim.x - 1) / blockDim.x,
-                 (image->height + blockDim.y - 1) / blockDim.y);
-
-    kernelRenderPixels<<<gridDim, blockDim>>>();
+                (image->height + blockDim.y - 1) / blockDim.y);
+    if (sceneName == CIRCLE_TEST_100K || sceneName == BIG_LITTLE || sceneName == LITTLE_BIG) {
+        kernelRenderPixelsRand100k<<<gridDim, blockDim>>>();
+    } else if (sceneName == SNOWFLAKES_SINGLE_FRAME) {
+        kernelRenderPixelsSnowSingle<<<gridDim, blockDim>>>();
+    }
+    else {
+        kernelRenderPixelsRegular<<<gridDim, blockDim>>>();
+    }
+    
     cudaDeviceSynchronize();
 }
